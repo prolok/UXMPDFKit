@@ -18,7 +18,7 @@ open class PDFAnnotationController: UIViewController {
     var document: PDFDocument!
     
     /// Store containing all annotations for document
-    var annotations = PDFAnnotationStore()
+    private (set) open var annotations = PDFAnnotationStore()
     
     /// References to pages within view
     var allPages = [PDFPageContentView]()
@@ -119,7 +119,8 @@ open class PDFAnnotationController: UIViewController {
         view.isOpaque = false
         view.backgroundColor = UIColor.clear
         
-        self.loadButtons(for: self.annotationTypes)
+        loadButtons(for: self.annotationTypes)
+        undoButton.isEnabled = (annotations.annotations.count > 0)
     }
     
     //MARK: - Annotation handling
@@ -145,13 +146,16 @@ open class PDFAnnotationController: UIViewController {
         annotationType = type
         
         view.isUserInteractionEnabled = annotationType != nil
+        undoButton.isEnabled = (annotationType != nil || annotations.annotations.count > 0)
     }
     
     open func finishAnnotation() {
         
         annotationType = .none
         addCurrentAnnotationToStore()
+
         view.isUserInteractionEnabled = false
+        undoButton.isEnabled = (annotations.annotations.count > 0)
     }
     
     //MARK: - Bar button actions
@@ -176,9 +180,15 @@ open class PDFAnnotationController: UIViewController {
     }
     
     @IBAction func selectedUndo(_ button: PDFBarButton) {
+        //keep track of what kind of annotation we're adding
+        let currentAnnotationType = annotationType
         
+        //finish and undo it
         finishAnnotation()
         undo()
+        
+        //then start a new annotation of the same type
+        startAnnotation(currentAnnotationType)
     }
     
     func select(annotation: PDFAnnotation?) {
@@ -231,7 +241,13 @@ open class PDFAnnotationController: UIViewController {
     
     //MARK: - Touches methods to pass to annotation
     open override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
+        // We only allow one-finger touches to start annotations, as otherwise
+        // when you are pen-editing then try to zoom, one of your fingers will draw instead of zooming
+        // This is a HACK, as IDEALLY the two-finger pinch would zoom while still in
+        // annotation editing mode, but for the life of me I could not get that to go, forwarding
+        // events/touches to pretty much anything.
+        guard let touch = touches.first, event?.allTouches?.count == 1
+            else { return }
         
         let page = annotationDelegate?.annotationWillStart(touch: touch)
         
@@ -252,14 +268,16 @@ open class PDFAnnotationController: UIViewController {
     
     
     open override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
+        guard let touch = touches.first, event?.allTouches?.count == 1
+            else { return }
         let point = touch.location(in: pageView)
         
         currentAnnotation?.touchMoved(touch, point: point)
     }
     
     open override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
+        guard let touch = touches.first, event?.allTouches?.count == 1
+            else { return }
         let point = touch.location(in: pageView)
         
         currentAnnotation?.touchEnded(touch, point: point)

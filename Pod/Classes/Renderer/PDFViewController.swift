@@ -39,6 +39,8 @@ open class PDFViewController: UIViewController {
     /// A boolean value that determines if view controller is displayed as modal
     open var isPresentingInModal: Bool = false
     
+    open var modalDoneButtonTouched: (() -> ())?
+    
     /// The scroll direction of the reader
     open var scrollDirection: UICollectionViewScrollDirection = .horizontal
     
@@ -51,6 +53,14 @@ open class PDFViewController: UIViewController {
     /// A closure that defines an action to take upon selecting the share button.
     /// The default action brings up a UIActivityViewController
     open lazy var shareBarButtonAction: () -> () = { self.showActivitySheet() }
+    
+    /// A closure that defines what happens on viewWillDisappear.
+    /// The default is to assign the annotations out of the annotationController into
+    /// the document, then call document.save()
+    open lazy var autoSaveAction: (PDFDocument, PDFAnnotationController) -> () = { document, annotationController in
+        document.annotations = annotationController.annotations
+        document.save()
+    }
     
     /// A reference to the collection view handling page presentation
     var collectionView: PDFSinglePageViewer!
@@ -75,6 +85,9 @@ open class PDFViewController: UIViewController {
     public init(document: PDFDocument) {
         super.init(nibName: nil, bundle: nil)
         self.document = document
+        self.modalDoneButtonTouched = { [unowned self] in
+            self.dismiss(animated: true, completion: nil)
+        }
     }
     
     /**
@@ -160,8 +173,7 @@ open class PDFViewController: UIViewController {
         super.viewWillDisappear(animated)
         
         self.annotationController.finishAnnotation()
-        self.document.annotations = self.annotationController.annotations
-        self.document.save()
+        autoSaveAction(self.document, self.annotationController)
     }
     
     open override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -198,13 +210,23 @@ open class PDFViewController: UIViewController {
     
     open func rightBarButtons() -> [UIBarButtonItem] {
         if (signatureMode) {
-            var buttons = self.navigationItem.rightBarButtonItems!
+            var buttons = self.navigationItem.rightBarButtonItems ?? []
             
             // undo button
             buttons.append(annotationController.undoButton)
             
-            // draw button
-            buttons.append(annotationController.buttons[1]);
+            // find the draw button (hopefully you added that thing huh?)
+            if let penButton = annotationController.buttons.filter({ (button: PDFBarButton) -> Bool in
+                if let annotationButton = button as? PDFAnnotationBarButton {
+                    return annotationButton.annotationType == PDFPenAnnotation.self
+                }
+                return false
+            }).first {
+                buttons.append(penButton);
+            }
+            else {
+                assert(false, "Used 'signatureMode' of true, but did NOT provide the PDFPenAnnotationBarButton as an annotation! No Sign button for you!")
+            }
             
             return buttons
         }
@@ -326,7 +348,7 @@ open class PDFViewController: UIViewController {
     }
     
     func dismissModal() {
-        dismiss(animated: true, completion: nil)
+        modalDoneButtonTouched?()
     }
 }
 
